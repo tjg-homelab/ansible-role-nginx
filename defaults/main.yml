@@ -1,0 +1,40 @@
+---
+# Virtual hosts to manage. Each entry renders one file in
+# /etc/nginx/conf.d/<name>.conf. See README for the full entry schema.
+nginx_vhosts: []
+
+# Role-level default TLS material, used by any vhost that does not set its
+# own tls_certificate / tls_certificate_key. Point these at the cert your
+# cert-distribution tooling drops on the host (e.g. a wildcard cert).
+# Required (per vhost or here) unless a vhost sets `tls: false`.
+nginx_tls_certificate: ""
+nginx_tls_certificate_key: ""
+
+# TLS policy applied to every TLS vhost. Empty ciphers string means
+# "use the nginx/openssl defaults", which are sane on modern distros.
+nginx_ssl_protocols: "TLSv1.2 TLSv1.3"
+nginx_ssl_ciphers: ""
+
+# Install a catch-all port-80 server that 301-redirects every request to
+# https://<same host><same uri>. Replaces per-vhost HTTP redirect blocks;
+# disable if something else owns port 80.
+nginx_http_redirect: true
+
+# Remove the distro's default site (/etc/nginx/sites-enabled/default) so it
+# cannot shadow managed vhosts.
+nginx_remove_default_site: true
+
+# Optional stub_status endpoint (the nginx equivalent of Apache's
+# mod_status server-status page), served on its own port.
+nginx_status_enabled: false
+nginx_status_port: 8083
+nginx_status_allow:
+  - 127.0.0.1
+
+# Headers set on every proxied request, in addition to Host (see the
+# per-vhost preserve_host flag).
+nginx_proxy_set_headers:
+  X-Real-IP: "$remote_addr"
+  X-Forwarded-For: "$proxy_add_x_forwarded_for"
+  X-Forwarded-Proto: "$scheme"
+  X-Forwarded-Port: "$server_port"

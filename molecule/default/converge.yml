@@ -1,0 +1,36 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    nginx_tls_certificate: /etc/ssl/molecule/molecule.crt
+    nginx_tls_certificate_key: /etc/ssl/molecule/molecule.key
+    nginx_status_enabled: true
+    nginx_status_allow:
+      - 127.0.0.1
+    nginx_vhosts:
+      # Proxy shape: websocket, timeout override, extra locations, and a
+      # TLS upstream — the union of what the homelab edge hosts do.
+      - name: app.example.test
+        mode: proxy
+        upstream: http://127.0.0.1:9000
+        websocket: true
+        proxy_read_timeout: 600
+        locations:
+          - path: /webhook
+            upstream: http://127.0.0.1:9001/webhook
+          - path: /secure/
+            upstream: https://127.0.0.1:9443/
+          - path: "= /old/index.php"
+            return: "302 https://wiki.example.test/"
+      - name: site.example.test
+        mode: static
+        root: /var/www/testsite
+      - name: old.example.test
+        mode: redirect
+        redirect_to: https://site.example.test
+        aliases:
+          - older.example.test
+      - name: gone.example.test
+        state: absent
+  roles:
+    - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

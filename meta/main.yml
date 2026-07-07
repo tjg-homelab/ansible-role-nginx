@@ -1,0 +1,27 @@
+---
+galaxy_info:
+  role_name: nginx
+  author: rnissen
+  description: >-
+    Data-driven nginx for the reverse-proxy edge — declare vhosts as a list
+    (proxy, static, or redirect, with websocket support) and the role renders
+    the config, including a catch-all HTTP to HTTPS redirect
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - nginx
+    - proxy
+    - reverseproxy
+    - web
+    - tls
+
+dependencies: []

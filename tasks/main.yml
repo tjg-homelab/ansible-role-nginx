@@ -1,0 +1,113 @@
+---
+- name: Assert vhost entries are well formed
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.mode | default('proxy') in ['proxy', 'static', 'redirect']
+      - item.mode | default('proxy') != 'proxy'
+        or item.upstream is defined
+        or item.locations is defined
+      - item.mode | default('proxy') != 'static' or item.root is defined
+      - item.mode | default('proxy') != 'redirect' or item.redirect_to is defined
+      - not (item.tls | default(true))
+        or item.tls_certificate is defined
+        or nginx_tls_certificate | length > 0
+    fail_msg: >-
+      nginx_vhosts entry '{{ item.name | default('<unnamed>') }}' is invalid:
+      needs a name, a valid mode (proxy/static/redirect), the mode's required
+      key (upstream/root/redirect_to), and TLS material (per-vhost or
+      nginx_tls_certificate).
+  loop: "{{ nginx_vhosts }}"
+  loop_control:
+    label: "{{ item.name | default('<unnamed>') }}"
+  when: item.state | default('present') == 'present'
+
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Remove distro default site
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/sites-enabled/default
+    - /etc/nginx/sites-available/default
+  when: nginx_remove_default_site | bool
+  notify: Reload nginx
+
+- name: Install websocket connection-upgrade map
+  ansible.builtin.template:
+    src: websocket-map.conf.j2
+    dest: /etc/nginx/conf.d/00-websocket-map.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Manage catch-all HTTP to HTTPS redirect
+  ansible.builtin.template:
+    src: http-redirect.conf.j2
+    dest: /etc/nginx/conf.d/01-http-redirect.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_http_redirect | bool
+  notify: Reload nginx
+
+- name: Remove catch-all HTTP redirect when disabled
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/01-http-redirect.conf
+    state: absent
+  when: not nginx_http_redirect | bool
+  notify: Reload nginx
+
+- name: Manage stub_status endpoint
+  ansible.builtin.template:
+    src: status.conf.j2
+    dest: /etc/nginx/conf.d/02-status.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_status_enabled | bool
+  notify: Reload nginx
+
+- name: Remove stub_status endpoint when disabled
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/02-status.conf
+    state: absent
+  when: not nginx_status_enabled | bool
+  notify: Reload nginx
+
+- name: Render vhost configurations
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/conf.d/{{ item.name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ nginx_vhosts | selectattr('state', 'undefined') | list
+            + nginx_vhosts | selectattr('state', 'defined')
+                           | selectattr('state', 'equalto', 'present') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload nginx
+
+- name: Remove vhosts with state absent
+  ansible.builtin.file:
+    path: "/etc/nginx/conf.d/{{ item.name }}.conf"
+    state: absent
+  loop: "{{ nginx_vhosts | selectattr('state', 'defined')
+                         | selectattr('state', 'equalto', 'absent') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload nginx
+
+- name: Enable and start nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true

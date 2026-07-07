@@ -1,0 +1,8 @@
+{{ ansible_managed | comment }}
+# Maps the client's Upgrade header to the Connection header value nginx
+# should send upstream, so websocket handshakes pass through proxied
+# locations that set `websocket: true`.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}

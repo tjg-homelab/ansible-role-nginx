@@ -1,0 +1,81 @@
+{{ ansible_managed | comment }}
+{% set mode = item.mode | default('proxy') %}
+{% set tls = item.tls | default(true) %}
+{% macro proxy_location(path, cfg) %}
+    location {{ path }} {
+        proxy_pass {{ cfg.upstream }};
+{% if cfg.preserve_host | default(true) %}
+        proxy_set_header Host $host;
+{% endif %}
+{% for header, value in nginx_proxy_set_headers.items() %}
+        proxy_set_header {{ header }} {{ value }};
+{% endfor %}
+{% if cfg.upstream is match('https:') %}
+        proxy_ssl_server_name on;
+{% endif %}
+{% if cfg.websocket | default(false) %}
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+{% endif %}
+{% if cfg.proxy_read_timeout is defined %}
+        proxy_read_timeout {{ cfg.proxy_read_timeout }}s;
+        proxy_send_timeout {{ cfg.proxy_read_timeout }}s;
+{% endif %}
+{% if cfg.extra is defined %}
+{{ cfg.extra | indent(8, true) }}
+{% endif %}
+    }
+{% endmacro %}
+server {
+{% if tls %}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+{% else %}
+    listen 80;
+    listen [::]:80;
+{% endif %}
+    server_name {{ ([item.name] + (item.aliases | default([]))) | join(' ') }};
+{% if tls %}
+
+    ssl_certificate     {{ item.tls_certificate | default(nginx_tls_certificate) }};
+    ssl_certificate_key {{ item.tls_certificate_key | default(nginx_tls_certificate_key) }};
+    ssl_protocols       {{ nginx_ssl_protocols }};
+{% if nginx_ssl_ciphers | length > 0 %}
+    ssl_ciphers         {{ nginx_ssl_ciphers }};
+{% endif %}
+{% endif %}
+{% for location in item.locations | default([]) %}
+
+{% if location.upstream is defined %}
+{{ proxy_location(location.path, location) -}}
+{% elif location.return is defined %}
+    location {{ location.path }} {
+        return {{ location.return }};
+    }
+{% elif location.root is defined %}
+    location {{ location.path }} {
+        root {{ location.root }};
+    }
+{% endif %}
+{% endfor %}
+{% if mode == 'proxy' and item.upstream is defined %}
+
+{{ proxy_location('/', item) -}}
+{% elif mode == 'static' %}
+
+    root {{ item.root }};
+    index {{ item.index | default('index.html index.htm') }};
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+{% elif mode == 'redirect' %}
+
+    return {{ item.redirect_code | default(301) }} {{ item.redirect_to }}{{ '$request_uri' if item.redirect_preserve_path | default(true) else '' }};
+{% endif %}
+{% if item.extra_config is defined %}
+
+{{ item.extra_config | indent(4, true) }}
+{% endif %}
+}

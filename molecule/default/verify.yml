@@ -1,0 +1,131 @@
+---
+# Note: verify cannot reference role defaults — values are hardcoded to match
+# converge.yml and the role's rendered paths.
+- name: Verify
+  hosts: all
+  tasks:
+    - name: Validate nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Check nginx service state
+      ansible.builtin.service_facts:
+
+    - name: Assert nginx is running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['nginx.service'].state == 'running'
+          - ansible_facts.services['nginx.service'].status == 'enabled'
+
+    - name: Stat managed and unmanaged config files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/nginx/conf.d/00-websocket-map.conf
+        - /etc/nginx/conf.d/01-http-redirect.conf
+        - /etc/nginx/conf.d/02-status.conf
+        - /etc/nginx/conf.d/app.example.test.conf
+        - /etc/nginx/conf.d/site.example.test.conf
+        - /etc/nginx/conf.d/old.example.test.conf
+        - /etc/nginx/conf.d/gone.example.test.conf
+        - /etc/nginx/sites-enabled/default
+      register: nginx_verify_stats
+
+    - name: Assert managed configs exist and removed configs are gone
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_stats.results[0].stat.exists
+          - nginx_verify_stats.results[1].stat.exists
+          - nginx_verify_stats.results[2].stat.exists
+          - nginx_verify_stats.results[3].stat.exists
+          - nginx_verify_stats.results[4].stat.exists
+          - nginx_verify_stats.results[5].stat.exists
+          - not nginx_verify_stats.results[6].stat.exists
+          - not nginx_verify_stats.results[7].stat.exists
+
+    - name: Read rendered proxy vhost
+      ansible.builtin.slurp:
+        src: /etc/nginx/conf.d/app.example.test.conf
+      register: nginx_verify_app_conf
+
+    - name: Assert proxy vhost renders the expected directives
+      ansible.builtin.assert:
+        that:
+          - "'proxy_pass http://127.0.0.1:9000;' in conf"
+          - "'proxy_set_header Upgrade $http_upgrade;' in conf"
+          - "'proxy_set_header Connection $connection_upgrade;' in conf"
+          - "'proxy_read_timeout 600s;' in conf"
+          - "'location /webhook {' in conf"
+          - "'proxy_ssl_server_name on;' in conf"
+          - "'return 302 https://wiki.example.test/;' in conf"
+          - "'proxy_set_header X-Forwarded-Proto $scheme;' in conf"
+      vars:
+        conf: "{{ nginx_verify_app_conf.content | b64decode }}"
+
+    - name: Request static site over HTTP (expect catch-all redirect)
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        headers:
+          Host: site.example.test
+        follow_redirects: none
+        status_code: 301
+      register: nginx_verify_http_redirect
+
+    - name: Assert HTTP redirects to HTTPS on the same host
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_http_redirect.location == 'https://site.example.test/'
+
+    - name: Request static site over HTTPS
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        headers:
+          Host: site.example.test
+        validate_certs: false
+        return_content: true
+      register: nginx_verify_static
+
+    - name: Assert static site serves the fixture
+      ansible.builtin.assert:
+        that:
+          - "'molecule static fixture' in nginx_verify_static.content"
+
+    - name: Request redirect vhost and its alias over HTTPS
+      ansible.builtin.uri:
+        url: https://127.0.0.1/some/path
+        headers:
+          Host: "{{ item }}"
+        validate_certs: false
+        follow_redirects: none
+        status_code: 301
+      loop:
+        - old.example.test
+        - older.example.test
+      register: nginx_verify_redirect
+
+    - name: Assert redirect vhost preserves the request path
+      ansible.builtin.assert:
+        that:
+          - item.location == 'https://site.example.test/some/path'
+      loop: "{{ nginx_verify_redirect.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Request proxy vhost (expect 502 — no backend in test)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        headers:
+          Host: app.example.test
+        validate_certs: false
+        status_code: 502
+
+    - name: Request stub_status endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8083/nginx_status
+        return_content: true
+      register: nginx_verify_status
+
+    - name: Assert stub_status responds
+      ansible.builtin.assert:
+        that:
+          - "'Active connections' in nginx_verify_status.content"

@@ -1,0 +1,62 @@
+---
+# Test fixtures. TLS material is generated at runtime rather than committed —
+# checked-in PEM blocks trip the gitleaks CI job (lesson from the certs role).
+- name: Prepare
+  hosts: all
+  tasks:
+    - name: Install openssl for throwaway cert generation
+      ansible.builtin.apt:
+        name: openssl
+        state: present
+        update_cache: true
+
+    - name: Create TLS fixture directory
+      ansible.builtin.file:
+        path: /etc/ssl/molecule
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Generate throwaway self-signed certificate
+      ansible.builtin.command: >-
+        openssl req -x509 -newkey rsa:2048 -nodes
+        -keyout /etc/ssl/molecule/molecule.key
+        -out /etc/ssl/molecule/molecule.crt
+        -days 7 -subj "/CN=*.example.test"
+      args:
+        creates: /etc/ssl/molecule/molecule.crt
+
+    - name: Create nginx conf.d ahead of install (for stale-config fixture)
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Plant stale vhost config (role must remove it via state absent)
+      ansible.builtin.copy:
+        content: "# stale config that the role should remove\n"
+        dest: /etc/nginx/conf.d/gone.example.test.conf
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
+    - name: Create static site docroot fixture
+      ansible.builtin.file:
+        path: /var/www/testsite
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create static site index fixture
+      ansible.builtin.copy:
+        content: "molecule static fixture\n"
+        dest: /var/www/testsite/index.html
+        owner: root
+        group: root
+        mode: "0644"
+        force: false

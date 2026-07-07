@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+server {
+    listen {{ nginx_status_port }};
+    listen [::]:{{ nginx_status_port }};
+    server_name _;
+
+    location /nginx_status {
+        stub_status;
+{% for source in nginx_status_allow %}
+        allow {{ source }};
+{% endfor %}
+        deny all;
+    }
+}
