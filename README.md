@@ -3,9 +3,10 @@
 [![CI](https://github.com/tjg-homelab/ansible-role-nginx/actions/workflows/ci.yml/badge.svg)](https://github.com/tjg-homelab/ansible-role-nginx/actions/workflows/ci.yml)
 
 Data-driven nginx for the reverse-proxy edge. Declare your vhosts as a list —
-each one a **proxy**, **static** site, or **redirect** — and the role renders
-the config: TLS termination, websocket upgrades, proxy headers, a catch-all
-HTTP→HTTPS redirect, and an optional `stub_status` endpoint.
+each one a **proxy**, **static** site, **redirect**, or **php** app (FastCGI to
+php-fpm) — and the role renders the config: TLS termination, websocket upgrades,
+proxy headers, a catch-all HTTP→HTTPS redirect, and an optional `stub_status`
+endpoint.
 
 The design goal is that a vhost is *intent-level data*, not embedded nginx
 syntax:
@@ -43,6 +44,7 @@ at the result.
 | `nginx_acme_challenge` | `true` | Serve `/.well-known/acme-challenge/` from a webroot on :80 (for `certbot --webroot`) instead of redirecting it; only applies when `nginx_http_redirect` is true |
 | `nginx_acme_webroot` | `/var/www/html` | Webroot the ACME challenge is served from |
 | `nginx_remove_default_site` | `true` | Remove the distro default site |
+| `nginx_php_fpm_pass` | `unix:/run/php/php8.4-fpm.sock` | Default FastCGI upstream for `mode: php` vhosts (override per vhost with `php_fpm_pass`) |
 | `nginx_status_enabled` | `false` | Serve `stub_status` on its own port |
 | `nginx_status_port` | `8083` | Port for the status endpoint |
 | `nginx_status_allow` | `[127.0.0.1]` | Sources allowed to read the status page |
@@ -54,7 +56,7 @@ at the result.
 nginx_vhosts:
   - name: app.example.com        # required — primary server_name (also the filename)
     state: present               # optional — absent removes the vhost file
-    mode: proxy                  # proxy (default) | static | redirect
+    mode: proxy                  # proxy (default) | static | redirect | php
     aliases:                     # optional — extra server_name entries
       - app-alias.example.com
     tls: true                    # optional — false = plain port-80 vhost
@@ -77,6 +79,16 @@ nginx_vhosts:
     redirect_to: https://www.example.com   # target, no trailing slash
     redirect_code: 301           # optional
     redirect_preserve_path: true # optional — append the request path
+
+    # mode: php   (FastCGI to php-fpm — e.g. phpBB, WordPress, plain PHP)
+    root: /var/www/forum         # required — docroot
+    index: index.php index.html  # optional (default: index.php index.html)
+    php_fpm_pass: 127.0.0.1:9010 # optional — override nginx_php_fpm_pass (socket or host:port)
+    php_front_controller: /app.php   # optional — unmatched URIs fall through to
+                                     # this script (phpBB/Symfony routing); omit
+                                     # for plain PHP (unmatched → 404)
+    php_deny:                    # optional — location regexes returned as 403
+      - /(config|cache|files|includes|store|vendor)
 
     # any mode — extra location blocks
     locations:

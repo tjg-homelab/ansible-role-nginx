@@ -61,6 +61,82 @@
         mode: "0644"
         force: false
 
+    # ---- PHP-FPM fixture for the `mode: php` vhost ----
+    - name: Install php-fpm (distro default version) for the php-mode fixture
+      ansible.builtin.apt:
+        name: php-fpm
+        state: present
+        update_cache: true
+
+    - name: Locate the php-fpm pool config(s)
+      ansible.builtin.find:
+        paths: /etc/php
+        patterns: www.conf
+        recurse: true
+      register: molecule_fpm_pools
+
+    - name: Point the php-fpm pool at TCP 127.0.0.1:9010 (version-independent)
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: '^listen = .*$'
+        replace: "listen = 127.0.0.1:9010"
+      loop: "{{ molecule_fpm_pools.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Enable and (re)start php-fpm on the new listener
+      ansible.builtin.shell: |
+        set -e
+        svc=$(systemctl list-unit-files --type=service 'php*-fpm.service' --no-legend | awk '{print $1}' | head -1)
+        systemctl enable "$svc"
+        systemctl restart "$svc"
+        echo "$svc"
+      register: molecule_fpm_svc
+      changed_when: true
+
+    - name: Create php app docroot fixture
+      ansible.builtin.file:
+        path: /var/www/phpapp
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Plant an executable index.php (proves php-fpm runs, not raw source)
+      ansible.builtin.copy:
+        content: "<?php echo 'PHP-OK:' . (2 + 2);\n"
+        dest: /var/www/phpapp/index.php
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        force: false
+
+    - name: Plant a front-controller app.php (proves try_files routing fallback)
+      ansible.builtin.copy:
+        content: "<?php echo 'APP-CONTROLLER:' . $_SERVER['REQUEST_URI'];\n"
+        dest: /var/www/phpapp/app.php
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        force: false
+
+    - name: Create a denied subdir + secret (proves php_deny blocks it)
+      ansible.builtin.file:
+        path: /var/www/phpapp/config
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Plant a secret in the denied dir
+      ansible.builtin.copy:
+        content: "SECRET-SHOULD-NOT-BE-SERVED\n"
+        dest: /var/www/phpapp/config/secret.txt
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        force: false
+
     - name: Create ACME webroot challenge dir fixture
       ansible.builtin.file:
         path: /var/www/html/.well-known/acme-challenge
