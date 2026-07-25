@@ -86,11 +86,13 @@
 
     - name: Enable and (re)start php-fpm on the new listener
       ansible.builtin.shell: |
-        set -e
+        set -eo pipefail
         svc=$(systemctl list-unit-files --type=service 'php*-fpm.service' --no-legend | awk '{print $1}' | head -1)
         systemctl enable "$svc"
         systemctl restart "$svc"
         echo "$svc"
+      args:
+        executable: /bin/bash
       register: molecule_fpm_svc
       changed_when: true
 
