@@ -20,6 +20,14 @@ nginx_ssl_ciphers: ""
 # disable if something else owns port 80.
 nginx_http_redirect: true
 
+# Carve HTTP-01 ACME challenges out of that catch-all: the port-80 server
+# serves /.well-known/acme-challenge/ from a webroot over plain HTTP instead of
+# 301-ing it to HTTPS. Required for `certbot --webroot` renewals (an ACME
+# validator only speaks HTTP on :80). Set false to redirect everything (no
+# on-host certbot). Only takes effect when nginx_http_redirect is true.
+nginx_acme_challenge: true
+nginx_acme_webroot: /var/www/html
+
 # Remove the distro's default site (/etc/nginx/sites-enabled/default) so it
 # cannot shadow managed vhosts.
 nginx_remove_default_site: true

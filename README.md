@@ -40,6 +40,8 @@ at the result.
 | `nginx_ssl_protocols` | `TLSv1.2 TLSv1.3` | TLS protocols for all TLS vhosts |
 | `nginx_ssl_ciphers` | `""` | Cipher string; empty = distro/openssl defaults |
 | `nginx_http_redirect` | `true` | Catch-all port-80 server 301s everything to HTTPS |
+| `nginx_acme_challenge` | `true` | Serve `/.well-known/acme-challenge/` from a webroot on :80 (for `certbot --webroot`) instead of redirecting it; only applies when `nginx_http_redirect` is true |
+| `nginx_acme_webroot` | `/var/www/html` | Webroot the ACME challenge is served from |
 | `nginx_remove_default_site` | `true` | Remove the distro default site |
 | `nginx_status_enabled` | `false` | Serve `stub_status` on its own port |
 | `nginx_status_port` | `8083` | Port for the status endpoint |
