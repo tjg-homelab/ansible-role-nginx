@@ -73,6 +73,34 @@ server {
 {% elif mode == 'redirect' %}
 
     return {{ item.redirect_code | default(301) }} {{ item.redirect_to }}{{ '$request_uri' if item.redirect_preserve_path | default(true) else '' }};
+{% elif mode == 'php' %}
+
+    root {{ item.root }};
+    index {{ item.index | default('index.php index.html') }};
+
+{% for pattern in item.php_deny | default([]) %}
+    location ~ {{ pattern }} {
+        deny all;
+    }
+{% endfor %}
+    location / {
+{% if item.php_front_controller is defined %}
+        try_files $uri $uri/ {{ item.php_front_controller }}$is_args$args;
+{% else %}
+        try_files $uri $uri/ =404;
+{% endif %}
+    }
+
+    location ~ [^/]\.php(/|$) {
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        try_files $fastcgi_script_name =404;
+        fastcgi_pass {{ item.php_fpm_pass | default(nginx_php_fpm_pass) }};
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+    }
 {% endif %}
 {% if item.extra_config is defined %}
 

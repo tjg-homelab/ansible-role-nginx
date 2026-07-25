@@ -134,6 +134,60 @@
         validate_certs: false
         status_code: 502
 
+    - name: Read rendered php vhost
+      ansible.builtin.slurp:
+        src: /etc/nginx/conf.d/forum.example.test.conf
+      register: nginx_verify_php_conf
+
+    - name: Assert php vhost renders the expected fastcgi + routing directives
+      ansible.builtin.assert:
+        that:
+          - "'fastcgi_pass 127.0.0.1:9010;' in conf"
+          - "'try_files $uri $uri/ /app.php$is_args$args;' in conf"
+          - "'fastcgi_split_path_info ^(.+?\\.php)(/.*)$;' in conf"
+          - "'try_files $fastcgi_script_name =404;' in conf"
+          - "'location ~ /(config|cache|store) {' in conf"
+          - "'deny all;' in conf"
+      vars:
+        conf: "{{ nginx_verify_php_conf.content | b64decode }}"
+
+    - name: Request php app root over HTTPS (index.php must EXECUTE, not serve source)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        headers:
+          Host: forum.example.test
+        validate_certs: false
+        return_content: true
+      register: nginx_verify_php_index
+
+    - name: Assert index.php executed (php-fpm produced output)
+      ansible.builtin.assert:
+        that:
+          - "'PHP-OK:4' in nginx_verify_php_index.content"
+          - "'<?php' not in nginx_verify_php_index.content"
+
+    - name: Request an unmatched route (must fall through try_files to app.php)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/topic/42-hello
+        headers:
+          Host: forum.example.test
+        validate_certs: false
+        return_content: true
+      register: nginx_verify_php_route
+
+    - name: Assert the front controller handled the unmatched route
+      ansible.builtin.assert:
+        that:
+          - "'APP-CONTROLLER:/topic/42-hello' in nginx_verify_php_route.content"
+
+    - name: Request a php_deny path (must be forbidden)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/config/secret.txt
+        headers:
+          Host: forum.example.test
+        validate_certs: false
+        status_code: 403
+
     - name: Request stub_status endpoint
       ansible.builtin.uri:
         url: http://127.0.0.1:8083/nginx_status

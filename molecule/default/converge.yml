@@ -25,6 +25,16 @@
       - name: site.example.test
         mode: static
         root: /var/www/testsite
+      # PHP app shape: front-controller routing + a denied path. php_fpm_pass is
+      # a TCP address so the fixture is portable across the container php-fpm
+      # versions (the socket path is version-specific; the port is not).
+      - name: forum.example.test
+        mode: php
+        root: /var/www/phpapp
+        php_fpm_pass: 127.0.0.1:9010
+        php_front_controller: /app.php
+        php_deny:
+          - /(config|cache|store)
       - name: old.example.test
         mode: redirect
         redirect_to: https://site.example.test

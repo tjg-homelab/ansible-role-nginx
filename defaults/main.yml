@@ -32,6 +32,12 @@ nginx_acme_webroot: /var/www/html
 # cannot shadow managed vhosts.
 nginx_remove_default_site: true
 
+# FastCGI upstream for `mode: php` vhosts (php-fpm). Default is the Debian/Ubuntu
+# php-fpm unix socket for PHP 8.4; override per host (e.g. a different PHP version)
+# or per vhost via `php_fpm_pass`. Installing php-fpm itself is out of the role's
+# scope — provision it separately so the socket exists before nginx reloads.
+nginx_php_fpm_pass: "unix:/run/php/php8.4-fpm.sock"
+
 # Optional stub_status endpoint (the nginx equivalent of Apache's
 # mod_status server-status page), served on its own port.
 nginx_status_enabled: false
