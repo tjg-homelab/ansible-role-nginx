@@ -60,3 +60,20 @@
         group: root
         mode: "0644"
         force: false
+
+    - name: Create ACME webroot challenge dir fixture
+      ansible.builtin.file:
+        path: /var/www/html/.well-known/acme-challenge
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Plant an ACME challenge token fixture
+      ansible.builtin.copy:
+        content: "molecule-acme-token-body"
+        dest: /var/www/html/.well-known/acme-challenge/molecule-token
+        owner: root
+        group: root
+        mode: "0644"
+        force: false

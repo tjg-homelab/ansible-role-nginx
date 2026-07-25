@@ -3,5 +3,19 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    return 301 https://$host$request_uri;
+{% if nginx_acme_challenge | bool %}
+
+    # HTTP-01 ACME challenge — served over plain HTTP so `certbot --webroot`
+    # renewals validate before the catch-all redirect kicks in (^~ beats the
+    # prefix `location /` below).
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ nginx_acme_webroot }};
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+{% endif %}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }

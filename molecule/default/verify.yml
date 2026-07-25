@@ -76,6 +76,21 @@
         that:
           - nginx_verify_http_redirect.location == 'https://site.example.test/'
 
+    - name: Request an ACME challenge over HTTP (must NOT redirect)
+      ansible.builtin.uri:
+        url: http://127.0.0.1/.well-known/acme-challenge/molecule-token
+        headers:
+          Host: site.example.test
+        follow_redirects: none
+        status_code: 200
+        return_content: true
+      register: nginx_verify_acme
+
+    - name: Assert the ACME challenge is served over plain HTTP (webroot carve-out)
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_acme.content == 'molecule-acme-token-body'
+
     - name: Request static site over HTTPS
       ansible.builtin.uri:
         url: https://127.0.0.1/
