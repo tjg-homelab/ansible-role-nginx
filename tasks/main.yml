@@ -30,6 +30,26 @@
     update_cache: true
     cache_valid_time: 3600
 
+# nginx 1.25.1 replaced `listen ... http2` with a standalone `http2` directive
+# and deprecated the old form. Emitting the wrong one is not cosmetic: the
+# legacy parameter on a modern nginx logs a deprecation warning, and the modern
+# directive on an older nginx fails to parse and the service will not start.
+# Detect rather than assume — this fleet currently spans 1.22 and 1.24, while
+# the CI matrix covers 1.26+.
+- name: Read the installed nginx version
+  ansible.builtin.command: nginx -v
+  register: nginx_version_probe
+  changed_when: false
+  check_mode: false
+
+- name: Record the nginx version
+  # nginx -v writes to stderr on most builds and stdout on some; concatenating
+  # both avoids depending on which.
+  ansible.builtin.set_fact:
+    nginx_installed_version: >-
+      {{ (nginx_version_probe.stderr ~ nginx_version_probe.stdout)
+         | regex_search('nginx/([0-9.]+)', '\1') | first }}
+
 - name: Remove distro default site
   ansible.builtin.file:
     path: "{{ item }}"

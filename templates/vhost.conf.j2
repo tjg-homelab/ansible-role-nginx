@@ -29,8 +29,13 @@
 {% endmacro %}
 server {
 {% if tls %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
+{% set http2_directive = nginx_http2 and nginx_installed_version is version('1.25.1', '>=') %}
+{% set http2_listen = ' http2' if (nginx_http2 and not http2_directive) else '' %}
+    listen 443 ssl{{ http2_listen }};
+    listen [::]:443 ssl{{ http2_listen }};
+{% if http2_directive %}
+    http2 on;
+{% endif %}
 {% else %}
     listen 80;
     listen [::]:80;
