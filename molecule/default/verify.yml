@@ -198,3 +198,36 @@
       ansible.builtin.assert:
         that:
           - "'Active connections' in nginx_verify_status.content"
+
+    # --- AN-39: HTTP/2 in the form this nginx actually understands ---
+    # nginx 1.25.1 swapped `listen ... http2` for a standalone `http2`
+    # directive. Emitting the wrong one is not cosmetic: the legacy parameter on
+    # a modern nginx logs a deprecation warning, and the modern directive on an
+    # older nginx FAILS TO PARSE and the service will not start. The matrix
+    # spans both generations (debian12/ubuntu2404 are <1.25.1, debian13 and
+    # ubuntu2604 are newer), so this asserts each platform got its own form.
+    - name: Read the installed nginx version
+      ansible.builtin.command: nginx -v
+      register: nginx_verify_version
+      changed_when: false
+
+    - name: Read a rendered TLS vhost
+      ansible.builtin.slurp:
+        src: /etc/nginx/conf.d/app.example.test.conf
+      register: nginx_verify_vhost
+
+    - name: Assert HTTP/2 rendered in the correct syntax for this nginx
+      ansible.builtin.assert:
+        that:
+          - (ver is version('1.25.1', '>=')) | ternary('http2 on;' in conf, 'ssl http2;' in conf)
+          # and emphatically NOT the other form
+          - (ver is version('1.25.1', '>=')) | ternary('ssl http2;' not in conf, 'http2 on;' not in conf)
+        fail_msg: >-
+          nginx {{ ver }} got the wrong HTTP/2 syntax. Rendered vhost:
+          {{ conf }}
+        quiet: true
+      vars:
+        ver: >-
+          {{ (nginx_verify_version.stderr ~ nginx_verify_version.stdout)
+             | regex_search('nginx/([0-9.]+)', '\1') | first }}
+        conf: "{{ nginx_verify_vhost.content | b64decode }}"

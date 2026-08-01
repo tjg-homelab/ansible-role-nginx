@@ -13,6 +13,15 @@ nginx_tls_certificate_key: ""
 # TLS policy applied to every TLS vhost. Empty ciphers string means
 # "use the nginx/openssl defaults", which are sane on modern distros.
 nginx_ssl_protocols: "TLSv1.2 TLSv1.3"
+
+# HTTP/2 on TLS vhosts. Worth having on its own merits (multiplexing, header
+# compression, no head-of-line blocking across six sockets), and it is also what
+# makes a per-IP connection limit sane: under HTTP/1.1 one browser opens ~6
+# parallel connections per origin, so a limit of 5 throttles a NORMAL page load.
+#
+# The role picks the right syntax for the installed nginx automatically — see
+# the version detection in tasks/main.yml. Set false to opt a whole host out.
+nginx_http2: true
 nginx_ssl_ciphers: ""
 
 # Install a catch-all port-80 server that 301-redirects every request to
