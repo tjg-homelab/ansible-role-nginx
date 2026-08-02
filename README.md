@@ -44,6 +44,9 @@ at the result.
 | `nginx_acme_challenge` | `true` | Serve `/.well-known/acme-challenge/` from a webroot on :80 (for `certbot --webroot`) instead of redirecting it; only applies when `nginx_http_redirect` is true |
 | `nginx_acme_webroot` | `/var/www/html` | Webroot the ACME challenge is served from |
 | `nginx_remove_default_site` | `true` | Remove the distro default site |
+| `nginx_robots_enabled` | `true` | Serve `/robots.txt` on every vhost from one host-wide policy |
+| `nginx_robots_content` | AI/scraper blocklist | The policy body (see below) |
+| `nginx_robots_extra` | `""` | Rules appended into the trailing `User-agent: *` stanza |
 | `nginx_php_fpm_pass` | `unix:/run/php/php8.4-fpm.sock` | Default FastCGI upstream for `mode: php` vhosts (override per vhost with `php_fpm_pass`) |
 | `nginx_status_enabled` | `false` | Serve `stub_status` on its own port |
 | `nginx_status_port` | `8083` | Port for the status endpoint |
@@ -62,6 +65,9 @@ nginx_vhosts:
     tls: true                    # optional — false = plain port-80 vhost
     tls_certificate: /path.pem   # optional — override the role-level default
     tls_certificate_key: /k.pem  # optional
+    robots: true                 # optional — false omits the shared robots.txt
+                                 # include (for a vhost that serves its own, or
+                                 # must pass /robots.txt to a backend)
 
     # mode: proxy
     upstream: http://127.0.0.1:8080   # proxy_pass target (verbatim; trailing
@@ -115,6 +121,43 @@ Notes:
   Upstream certs are not verified, matching nginx's default.
 - Websocket support uses a shared `map $http_upgrade $connection_upgrade`
   installed by the role.
+
+## robots.txt
+
+The role serves one host-wide `/etc/nginx/robots.txt` on every vhost it
+generates, via a `location = /robots.txt` snippet included in each server
+block. `location =` is an exact match, so it wins over a `mode: php` front
+controller or a `proxy_pass` at `location /` regardless of block order.
+
+This exists because "no robots.txt" is not a neutral state. On a `mode: php`
+vhost with a front controller the request falls through to the application and
+returns HTML with `200`, which crawlers read as *no restrictions* — strictly
+worse than a 404.
+
+**The default policy blocks AI/LLM training and scraping agents only**
+(GPTBot, ClaudeBot, CCBot, Google-Extended, PerplexityBot, Bytespider,
+Amazonbot and friends) and applies `Crawl-delay: 10` to everything else.
+Googlebot and Bingbot are deliberately *not* blocked — a role default that
+deindexes the site from search is the wrong default. `Google-Extended` is
+Google's AI-training opt-out token and has no effect on Search indexing or
+ranking, which is why it can be blocked safely.
+
+Add site-specific rules with `nginx_robots_extra` rather than restating the
+agent list:
+
+```yaml
+nginx_robots_extra: |
+  Disallow: /ucp.php
+  Disallow: /search.php
+```
+
+Two behaviours worth knowing:
+
+- **`mode: redirect` vhosts do not serve it.** A server-level `return 301` runs
+  in the rewrite phase, before location matching, so `/robots.txt` is
+  redirected to the canonical host and served there.
+- **`mode: proxy` vhosts intercept it.** The backend never sees `/robots.txt`.
+  Set `robots: false` on that vhost if the backend must serve its own.
 
 ## Example Playbook
 

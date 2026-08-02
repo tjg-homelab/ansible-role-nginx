@@ -41,6 +41,74 @@ nginx_acme_webroot: /var/www/html
 # cannot shadow managed vhosts.
 nginx_remove_default_site: true
 
+# ---------- robots.txt ----------
+# Serve a robots.txt on EVERY vhost this role generates, from one host-wide
+# policy file. Without this a site has no robots.txt at all, and an app with a
+# front controller (mode: php) is worse than silent: the request falls through
+# to the app and returns an HTML page with 200, which a crawler reads as "no
+# restrictions". Set false to opt a whole host out; set `robots: false` on a
+# single vhost entry to opt just that one out (e.g. a proxied app that serves
+# its own).
+nginx_robots_enabled: true
+
+# The policy body. ONE file is shared by every vhost on the host, so keep it to
+# rules that are safe everywhere; per-site rules belong in nginx_robots_extra
+# or behind a per-vhost opt-out.
+#
+# DEFAULT POLICY: block AI/LLM training and scraping agents, leave search
+# engines alone. Googlebot and Bingbot are deliberately absent — blocking those
+# deindexes the site, which is almost never what you want from a role default.
+# Google-Extended is Google's AI-training opt-out token and does NOT affect
+# Search indexing or ranking; that separation is the entire reason it exists as
+# a distinct token, and it is why blocking it here is safe.
+#
+# The `User-agent: *` stanza goes LAST so nginx_robots_extra appends into it.
+nginx_robots_content: |
+  User-agent: GPTBot
+  Disallow: /
+
+  User-agent: OAI-SearchBot
+  Disallow: /
+
+  User-agent: ChatGPT-User
+  Disallow: /
+
+  User-agent: ClaudeBot
+  Disallow: /
+
+  User-agent: anthropic-ai
+  Disallow: /
+
+  User-agent: CCBot
+  Disallow: /
+
+  User-agent: Google-Extended
+  Disallow: /
+
+  User-agent: PerplexityBot
+  Disallow: /
+
+  User-agent: Bytespider
+  Disallow: /
+
+  User-agent: meta-externalagent
+  Disallow: /
+
+  User-agent: Amazonbot
+  Disallow: /
+
+  User-agent: *
+  Crawl-delay: 10
+
+# Appended verbatim to the end of the policy, i.e. INSIDE the trailing
+# `User-agent: *` stanza. This is the hook for host-specific Disallow rules
+# (expensive endpoints, session-bearing URLs) without restating the agent list
+# above. Example, for a phpBB host:
+#   nginx_robots_extra: |
+#     Disallow: /ucp.php
+#     Disallow: /search.php
+nginx_robots_extra: ""
+
 # FastCGI upstream for `mode: php` vhosts (php-fpm). Default is the Debian/Ubuntu
 # php-fpm unix socket for PHP 8.4; override per host (e.g. a different PHP version)
 # or per vhost via `php_fpm_pass`. Installing php-fpm itself is out of the role's
