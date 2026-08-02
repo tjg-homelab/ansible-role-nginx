@@ -103,6 +103,50 @@
   when: not nginx_status_enabled | bool
   notify: Reload nginx
 
+# Must run BEFORE the vhosts: a vhost including a snippet that does not exist
+# yet fails `nginx -t`, and the reload handler would take the whole service
+# down with it.
+- name: Manage the robots.txt policy
+  ansible.builtin.template:
+    src: robots.txt.j2
+    dest: /etc/nginx/robots.txt
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_robots_enabled | bool
+  notify: Reload nginx
+
+- name: Ensure the snippets directory exists
+  ansible.builtin.file:
+    path: /etc/nginx/snippets
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: nginx_robots_enabled | bool
+
+- name: Manage the robots.txt location snippet
+  ansible.builtin.template:
+    src: robots-snippet.conf.j2
+    dest: /etc/nginx/snippets/robots.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_robots_enabled | bool
+  notify: Reload nginx
+
+# Order matters on the way out too: the vhosts are re-rendered without the
+# include in the same play, so the config is never momentarily inconsistent.
+- name: Remove the robots.txt policy when disabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/snippets/robots.conf
+    - /etc/nginx/robots.txt
+  when: not nginx_robots_enabled | bool
+  notify: Reload nginx
+
 - name: Render vhost configurations
   ansible.builtin.template:
     src: vhost.conf.j2

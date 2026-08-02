@@ -1,0 +1,5 @@
+{{ ansible_managed | comment }}
+{{ nginx_robots_content | trim }}
+{% if nginx_robots_extra | trim | length > 0 %}
+{{ nginx_robots_extra | trim }}
+{% endif %}

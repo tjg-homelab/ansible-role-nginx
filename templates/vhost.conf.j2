@@ -50,6 +50,10 @@ server {
     ssl_ciphers         {{ nginx_ssl_ciphers }};
 {% endif %}
 {% endif %}
+{% if nginx_robots_enabled and item.robots | default(true) %}
+
+    include snippets/robots.conf;
+{% endif %}
 {% for location in item.locations | default([]) %}
 
 {% if location.upstream is defined %}

@@ -7,6 +7,10 @@
     nginx_status_enabled: true
     nginx_status_allow:
       - 127.0.0.1
+    # Host-specific rules append into the trailing `User-agent: *` stanza of
+    # the default policy, without restating the agent list.
+    nginx_robots_extra: |
+      Disallow: /molecule-secret.php
     nginx_vhosts:
       # Proxy shape: websocket, timeout override, extra locations, and a
       # TLS upstream — the union of what the homelab edge hosts do.
@@ -22,9 +26,12 @@
             upstream: https://127.0.0.1:9443/
           - path: "= /old/index.php"
             return: "302 https://wiki.example.test/"
+      # Opted OUT of the shared robots.txt — covers the escape hatch for a
+      # vhost that serves its own (or must pass /robots.txt to a backend).
       - name: site.example.test
         mode: static
         root: /var/www/testsite
+        robots: false
       # PHP app shape: front-controller routing + a denied path. php_fpm_pass is
       # a TCP address so the fixture is portable across the container php-fpm
       # versions (the socket path is version-specific; the port is not).

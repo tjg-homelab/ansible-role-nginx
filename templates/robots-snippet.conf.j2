@@ -1,0 +1,21 @@
+{{ ansible_managed | comment }}
+# Included once per server block by vhost.conf.j2 (see nginx_robots_enabled).
+#
+# `location =` is an EXACT match. nginx resolves exact matches ahead of prefix
+# and regex locations regardless of where the block appears in the file, so
+# this reliably wins over a `mode: php` front-controller fallthrough at
+# `location /` or a `proxy_pass` that would otherwise hand /robots.txt to a
+# backend.
+#
+# Served via `alias` to a real file rather than an inline `return 200 "..."`:
+# no escaping of newlines, the deployed policy is readable and diffable on
+# disk, and nginx sets Content-Type from mime.types (.txt -> text/plain)
+# instead of falling back to default_type (application/octet-stream).
+#
+# NOTE: a `mode: redirect` vhost will NOT serve this. A server-level
+# `return 301` runs in the rewrite phase, which is before location matching, so
+# /robots.txt is redirected to the canonical host and served there instead.
+# That is correct behaviour, just not obvious.
+location = /robots.txt {
+    alias /etc/nginx/robots.txt;
+}
