@@ -225,7 +225,9 @@
           - "'User-agent: Bingbot' not in policy"
           # nginx_robots_extra appended into the trailing wildcard stanza
           - "'Disallow: /molecule-secret.php' in policy"
-          - policy.rstrip().endswith('Disallow: /molecule-secret.php')
+          # Quoted: an unquoted scalar containing ": " parses as a YAML mapping,
+          # not a string, and ansible-core rejects it as a conditional.
+          - "policy.rstrip().endswith('Disallow: /molecule-secret.php')"
           - "'alias /etc/nginx/robots.txt;' in snippet"
         fail_msg: "Rendered /etc/nginx/robots.txt:\n{{ policy }}"
         quiet: true
