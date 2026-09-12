@@ -61,6 +61,39 @@
         mode: "0644"
         force: false
 
+    # AN-23: a dotfile that must never be served, planted the same way a
+    # repo's own .gitignore ended up published on folden-nissen.com.
+    - name: Plant a dotfile in the static docroot (must be denied)
+      ansible.builtin.copy:
+        content: "SHOULD-NOT-BE-SERVED\n"
+        dest: /var/www/testsite/.secret-dotfile
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
+    # AN-23: a real file under THIS vhost's own docroot at a /.well-known/
+    # path -- proves the dotfile deny's negative lookahead actually lets
+    # /.well-known/ through on the TLS vhost, as opposed to just not being
+    # contradicted by the separate ACME catch-all fixture (different docroot
+    # entirely: /var/www/html, not this vhost's /var/www/testsite).
+    - name: Create a /.well-known/ dir in the static docroot
+      ansible.builtin.file:
+        path: /var/www/testsite/.well-known/somewhere
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Plant a file under it (must NOT be caught by the dotfile deny)
+      ansible.builtin.copy:
+        content: "well-known fixture body\n"
+        dest: /var/www/testsite/.well-known/somewhere/token
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+
     # ---- PHP-FPM fixture for the `mode: php` vhost ----
     - name: Install php-fpm (distro default version) for the php-mode fixture
       ansible.builtin.apt:
@@ -134,6 +167,17 @@
       ansible.builtin.copy:
         content: "SECRET-SHOULD-NOT-BE-SERVED\n"
         dest: /var/www/phpapp/config/secret.txt
+        owner: www-data
+        group: www-data
+        mode: "0644"
+        force: false
+
+    # AN-23: same dotfile-deny check, but on a mode: php vhost -- proves the
+    # deny applies "to all modes" as the ticket requires, not just static.
+    - name: Plant a dotfile in the php docroot (must be denied)
+      ansible.builtin.copy:
+        content: "SHOULD-NOT-BE-SERVED\n"
+        dest: /var/www/phpapp/.env
         owner: www-data
         group: www-data
         mode: "0644"

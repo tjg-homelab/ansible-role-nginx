@@ -105,6 +105,51 @@
         that:
           - "'molecule static fixture' in nginx_verify_static.content"
 
+    # --- AN-22: opt-in security headers (site.example.test has no
+    # security_headers: false, so it gets nginx_default_security_headers) ---
+    - name: Assert security headers are present on a normal 200 response
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_static.x_frame_options == 'SAMEORIGIN'
+          - "'max-age=15768000' in nginx_verify_static.strict_transport_security"
+        fail_msg: "Headers seen: {{ nginx_verify_static }}"
+        quiet: true
+
+    # --- AN-23: dotfiles denied on every mode. /.well-known/ is excluded --
+    # not tested here since ACME's actual carve-out is a separate catch-all
+    # on :80 (already covered above); this proves the TLS vhost's own deny
+    # doesn't accidentally swallow /.well-known/ too.
+    - name: Request a dotfile from the static docroot (must be denied)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/.secret-dotfile
+        headers:
+          Host: site.example.test
+        validate_certs: false
+        status_code: 404
+      register: nginx_verify_dotfile_static
+
+    - name: Assert security headers land on the dotfile 404 too (the `always` parameter)
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_dotfile_static.x_frame_options == 'SAMEORIGIN'
+        quiet: true
+
+    - name: Request /.well-known/ on the same TLS vhost (must NOT be swallowed by the dotfile deny)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/.well-known/somewhere/token
+        headers:
+          Host: site.example.test
+        validate_certs: false
+        return_content: true
+        status_code: 200
+      register: nginx_verify_wellknown_tls
+
+    - name: Assert /.well-known/ served the real fixture, not a false pass
+      ansible.builtin.assert:
+        that:
+          - "'well-known fixture body' in nginx_verify_wellknown_tls.content"
+        quiet: true
+
     - name: Request redirect vhost and its alias over HTTPS
       ansible.builtin.uri:
         url: https://127.0.0.1/some/path
@@ -165,6 +210,36 @@
         that:
           - "'PHP-OK:4' in nginx_verify_php_index.content"
           - "'<?php' not in nginx_verify_php_index.content"
+
+    # --- AN-22: forum.example.test set security_headers: false -- the
+    # per-vhost opt-out. Confirmed on the same response already fetched
+    # above, no extra request needed.
+    - name: Assert the opted-out vhost does NOT get the security headers
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_php_index.x_frame_options is not defined
+          - nginx_verify_php_index.strict_transport_security is not defined
+        fail_msg: "Headers seen: {{ nginx_verify_php_index }}"
+        quiet: true
+
+    # --- AN-23: dotfile deny on a mode: php vhost too -- proves "all modes",
+    # and specifically that the regex location wins over the front
+    # controller's try_files fallback rather than leaking .env through it.
+    - name: Request a dotfile from the php docroot (must be denied, not routed to app.php)
+      ansible.builtin.uri:
+        url: https://127.0.0.1/.env
+        headers:
+          Host: forum.example.test
+        validate_certs: false
+        return_content: true
+        status_code: 404
+      register: nginx_verify_dotfile_php
+
+    - name: Assert the front controller never saw it
+      ansible.builtin.assert:
+        that:
+          - "'APP-CONTROLLER' not in nginx_verify_dotfile_php.content"
+        quiet: true
 
     - name: Request an unmatched route (must fall through try_files to app.php)
       ansible.builtin.uri:
