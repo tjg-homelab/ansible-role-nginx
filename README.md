@@ -5,8 +5,8 @@
 Data-driven nginx for the reverse-proxy edge. Declare your vhosts as a list —
 each one a **proxy**, **static** site, **redirect**, or **php** app (FastCGI to
 php-fpm) — and the role renders the config: TLS termination, websocket upgrades,
-proxy headers, a catch-all HTTP→HTTPS redirect, and an optional `stub_status`
-endpoint.
+proxy headers, a catch-all HTTP→HTTPS redirect, an optional `stub_status`
+endpoint, a dotfile deny on every vhost, and opt-in security headers.
 
 The design goal is that a vhost is *intent-level data*, not embedded nginx
 syntax:
@@ -52,6 +52,7 @@ at the result.
 | `nginx_status_port` | `8083` | Port for the status endpoint |
 | `nginx_status_allow` | `[127.0.0.1]` | Sources allowed to read the status page |
 | `nginx_proxy_set_headers` | X-Real-IP, X-Forwarded-* | Headers set on every proxied request |
+| `nginx_default_security_headers` | `[]` | Response headers added (with `always`) to every vhost — e.g. `["Strict-Transport-Security max-age=15768000"]`. Empty by default; see **Security headers** below before enabling alongside a separate hardening role |
 
 ### `nginx_vhosts` entry schema
 
@@ -68,6 +69,8 @@ nginx_vhosts:
     robots: true                 # optional — false omits the shared robots.txt
                                  # include (for a vhost that serves its own, or
                                  # must pass /robots.txt to a backend)
+    security_headers: true       # optional — false excludes this vhost from
+                                 # nginx_default_security_headers
 
     # mode: proxy
     upstream: http://127.0.0.1:8080   # proxy_pass target (verbatim; trailing
@@ -158,6 +161,48 @@ Two behaviours worth knowing:
   redirected to the canonical host and served there.
 - **`mode: proxy` vhosts intercept it.** The backend never sees `/robots.txt`.
   Set `robots: false` on that vhost if the backend must serve its own.
+
+## Dotfile protection (AN-23)
+
+Every vhost, in every mode, denies `/\.` except `/.well-known/`:
+
+```nginx
+location ~ /\.(?!well-known/) {
+    deny all;
+    return 404;
+}
+```
+
+This is not configurable — a docroot serving `.env`, `.git/`, `.htaccess`, or
+an accidentally-shipped `.gitignore` straight to the public internet is never
+correct, so there is no vhost-level opt-out. `/.well-known/` is excluded so
+other legitimate uses (e.g. `security.txt`) keep working; ACME's own HTTP-01
+carve-out is unaffected either way, since that's a separate catch-all on
+port 80 (`nginx_acme_challenge`), not this per-vhost TLS server block.
+
+## Security headers
+
+`nginx_default_security_headers` is **empty by default** — deliberately, not
+an oversight. Read the comment on that variable in `defaults/main.yml` before
+setting it: `add_header` inside a server block discards every header
+inherited from a parent (e.g. http-level) context, so turning this on where
+this role is *already* paired with a separate hardening role (like
+`devsec.hardening.nginx_hardening`) will silently **replace**, not add to,
+whatever that layer is providing.
+
+Enable it when this role runs **without** a separate hardening layer:
+
+```yaml
+nginx_default_security_headers:
+  - "Strict-Transport-Security max-age=15768000"
+  - "X-Frame-Options SAMEORIGIN"
+  - "X-Content-Type-Options nosniff"
+```
+
+Each entry is rendered as `add_header <entry> always;` — the `always`
+parameter means it lands on error responses (404, 403, 502, ...) too, not
+just the 2xx/3xx nginx applies `add_header` to by default. Set
+`security_headers: false` on a specific vhost to exclude just that one.
 
 ## Example Playbook
 

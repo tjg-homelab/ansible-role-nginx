@@ -11,6 +11,12 @@
     # the default policy, without restating the agent list.
     nginx_robots_extra: |
       Disallow: /molecule-secret.php
+    # AN-22: opted IN here (role default is empty) so the feature actually
+    # gets exercised. forum.example.test opts back OUT below, covering the
+    # per-vhost escape hatch.
+    nginx_default_security_headers:
+      - "Strict-Transport-Security max-age=15768000"
+      - "X-Frame-Options SAMEORIGIN"
     nginx_vhosts:
       # Proxy shape: websocket, timeout override, extra locations, and a
       # TLS upstream — the union of what the homelab edge hosts do.
@@ -35,6 +41,9 @@
       # PHP app shape: front-controller routing + a denied path. php_fpm_pass is
       # a TCP address so the fixture is portable across the container php-fpm
       # versions (the socket path is version-specific; the port is not).
+      # AN-22: opted OUT of the shared security headers -- covers the escape
+      # hatch for a vhost that sets its own (or a backend that must not have
+      # them overridden).
       - name: forum.example.test
         mode: php
         root: /var/www/phpapp
@@ -42,6 +51,7 @@
         php_front_controller: /app.php
         php_deny:
           - /(config|cache|store)
+        security_headers: false
       - name: old.example.test
         mode: redirect
         redirect_to: https://site.example.test

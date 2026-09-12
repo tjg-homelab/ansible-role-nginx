@@ -129,3 +129,21 @@ nginx_proxy_set_headers:
   X-Forwarded-For: "$proxy_add_x_forwarded_for"
   X-Forwarded-Proto: "$scheme"
   X-Forwarded-Port: "$server_port"
+
+# ---------- Security headers (AN-22) ----------
+# OFF by default (empty). Each entry is a full "Header value" string, added
+# with `always` so it also lands on error responses (404, 403, 502, ...),
+# not just the 2xx/3xx nginx applies add_header to without it.
+#
+# WHY OFF, NOT A SENSIBLE-DEFAULT SET: `add_header` inside a server block
+# DISCARDS every header inherited from a parent context (http-level). A
+# consumer that already pairs this role with a dedicated hardening layer
+# (e.g. devsec.hardening.nginx_hardening, which applies its own set at the
+# http level) would have those silently REPLACED, not added to, the moment
+# this role also emits add_header per vhost -- turning a two-layer setup into
+# a one-layer one with no visible error. Defaulting to empty means adopting a
+# new role version changes nothing for an existing pairing; a consumer using
+# this role STANDALONE (no separate hardening layer) opts in explicitly and
+# gets a real baseline instead of silently shipping with none. Set false on
+# a specific vhost (security_headers: false) to exclude it.
+nginx_default_security_headers: []
