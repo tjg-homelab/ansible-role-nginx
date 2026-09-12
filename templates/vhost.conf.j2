@@ -54,6 +54,23 @@ server {
 
     include snippets/robots.conf;
 {% endif %}
+{% if nginx_default_security_headers | length > 0 and item.security_headers | default(true) %}
+
+{% for header in nginx_default_security_headers %}
+    add_header {{ header }} always;
+{% endfor %}
+{% endif %}
+
+    # AN-23: dotfiles (.env, .git*, .htaccess, an accidentally-shipped
+    # .gitignore, ...) must never be served from a docroot. /.well-known/ is
+    # explicitly excluded: ACME's own webroot carve-out is a separate
+    # catch-all on :80 (http-redirect.conf.j2) so this exclusion isn't what
+    # keeps certbot renewals working, but other /.well-known/ URIs (e.g.
+    # security.txt) are legitimate and should keep resolving over :443 too.
+    location ~ /\.(?!well-known/) {
+        deny all;
+        return 404;
+    }
 {% for location in item.locations | default([]) %}
 
 {% if location.upstream is defined %}
