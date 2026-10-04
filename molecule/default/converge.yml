@@ -17,6 +17,8 @@
     nginx_default_security_headers:
       - "Strict-Transport-Security max-age=15768000"
       - "X-Frame-Options SAMEORIGIN"
+    # Proxy vhosts default to this body limit; static/php/redirect do not.
+    nginx_proxy_client_max_body_size: 1m
     nginx_vhosts:
       # Proxy shape: websocket, timeout override, extra locations, and a
       # TLS upstream — the union of what the homelab edge hosts do.
@@ -59,5 +61,22 @@
           - older.example.test
       - name: gone.example.test
         state: absent
+      # Streaming-app shape (Home Assistant): buffering off, a body limit of
+      # its own, and an upstream that answers with an absolute http://
+      # redirect -- the plain-HTTP backend.example.test vhost below -- so the
+      # https:// Location rewrite (ProxyPassReverse parity) is exercised end
+      # to end, not just rendered.
+      - name: stream.example.test
+        mode: proxy
+        upstream: http://backend.example.test
+        preserve_host: false
+        buffering: false
+        client_max_body_size: 50m
+      - name: backend.example.test
+        mode: redirect
+        tls: false
+        redirect_to: http://stream.example.test/landing
+        redirect_code: 302
+        redirect_preserve_path: false
   roles:
     - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

@@ -29,6 +29,16 @@ nginx_ssl_ciphers: ""
 # disable if something else owns port 80.
 nginx_http_redirect: true
 
+# Install a catch-all :443 server that refuses the TLS handshake for any SNI
+# name no vhost claims (ssl_reject_handshake). Without it, an unknown name or
+# the bare IP is answered by whichever vhost loads first. Needs nginx 1.19.4+.
+nginx_https_reject_unknown: true
+
+# TLS session resumption on every TLS vhost (fewer full handshakes per
+# visitor). Mozilla's intermediate profile values. Empty cache = leave unset.
+nginx_ssl_session_cache: "shared:SSL:10m"
+nginx_ssl_session_timeout: "1d"
+
 # Carve HTTP-01 ACME challenges out of that catch-all: the port-80 server
 # serves /.well-known/acme-challenge/ from a webroot over plain HTTP instead of
 # 301-ing it to HTTPS. Required for `certbot --webroot` renewals (an ACME
@@ -129,6 +139,20 @@ nginx_proxy_set_headers:
   X-Forwarded-For: "$proxy_add_x_forwarded_for"
   X-Forwarded-Proto: "$scheme"
   X-Forwarded-Port: "$server_port"
+  X-Forwarded-Host: "$host"
+
+# Rewrite a backend's absolute http:// redirects to https:// on TLS vhosts
+# (alongside nginx's `proxy_redirect default`). The ProxyPassReverse
+# equivalent for a backend that sees the real Host but not the TLS in front of
+# it. Per vhost/location: `proxy_redirect_https: false`.
+nginx_proxy_redirect_https: true
+
+# client_max_body_size for `mode: proxy` vhosts that do not set their own
+# `client_max_body_size`. Empty = inherit the http-level value (nginx's 1m, or
+# whatever a hardening layer sets -- devsec's nginx_hardening sets 1k, which
+# rejects ordinary JSON API writes with 413). Static/redirect/php vhosts are
+# never affected by this default.
+nginx_proxy_client_max_body_size: ""
 
 # ---------- Security headers (AN-22) ----------
 # OFF by default (empty). Each entry is a full "Header value" string, added
