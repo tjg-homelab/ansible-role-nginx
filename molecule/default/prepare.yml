@@ -10,6 +10,18 @@
         state: present
         update_cache: true
 
+    # The vhosts are reached by NAME so the TLS client sends SNI: the role's
+    # :443 catch-all refuses handshakes that name no vhost, which includes
+    # any request to the bare IP (no SNI is sent for an IP literal).
+    - name: Resolve the fixture vhost names to loopback
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: >-
+          127.0.0.1 app.example.test site.example.test forum.example.test
+          old.example.test older.example.test stream.example.test
+          backend.example.test
+        unsafe_writes: true  # /etc/hosts is a bind mount in the container
+
     - name: Create TLS fixture directory
       ansible.builtin.file:
         path: /etc/ssl/molecule

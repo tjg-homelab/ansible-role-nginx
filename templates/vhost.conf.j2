@@ -13,10 +13,24 @@
 {% if cfg.upstream is match('https:') %}
         proxy_ssl_server_name on;
 {% endif %}
-{% if cfg.websocket | default(false) %}
+        # HTTP/1.1 + upgrade passthrough on every proxied location. The
+        # $connection_upgrade map sends `close` when no upgrade was asked
+        # for, so a plain request is unaffected; a websocket handshake just
+        # works without a per-vhost flag (the old `websocket:` key is a no-op).
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
+{% if item.tls | default(true) and cfg.proxy_redirect_https | default(nginx_proxy_redirect_https) %}
+        # ProxyPassReverse parity. `default` rewrites redirects that name the
+        # upstream address itself; the second rule catches the backend's own
+        # absolute http:// redirects (it sees the real Host via preserve_host
+        # but not the TLS in front of it) so the browser is not bounced to :80
+        # -- which also turns a redirected POST into a bodiless GET.
+        proxy_redirect default;
+        proxy_redirect http:// https://;
+{% endif %}
+{% if not cfg.buffering | default(true) %}
+        proxy_buffering off;
 {% endif %}
 {% if cfg.proxy_read_timeout is defined %}
         proxy_read_timeout {{ cfg.proxy_read_timeout }}s;
@@ -49,6 +63,17 @@ server {
 {% if nginx_ssl_ciphers | length > 0 %}
     ssl_ciphers         {{ nginx_ssl_ciphers }};
 {% endif %}
+{% if nginx_ssl_session_cache | length > 0 %}
+    ssl_session_cache   {{ nginx_ssl_session_cache }};
+    ssl_session_timeout {{ nginx_ssl_session_timeout }};
+{% endif %}
+{% endif %}
+{% set body_size = item.client_max_body_size | default(nginx_proxy_client_max_body_size if mode == 'proxy' else '') %}
+{# An extra_config that already sets it wins: a second client_max_body_size
+   in the same server block fails `nginx -t`. #}
+{% if body_size | string | length > 0 and 'client_max_body_size' not in item.extra_config | default('') %}
+
+    client_max_body_size {{ body_size }};
 {% endif %}
 {% if nginx_robots_enabled and item.robots | default(true) %}
 

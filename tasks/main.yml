@@ -86,6 +86,24 @@
   when: not nginx_http_redirect | bool
   notify: Reload nginx
 
+# ssl_reject_handshake needs nginx 1.19.4+; this fleet runs 1.22/1.24.
+- name: Manage catch-all HTTPS server (reject unknown SNI)
+  ansible.builtin.template:
+    src: https-default.conf.j2
+    dest: /etc/nginx/conf.d/01-https-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_https_reject_unknown | bool
+  notify: Reload nginx
+
+- name: Remove catch-all HTTPS server when disabled
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/01-https-default.conf
+    state: absent
+  when: not nginx_https_reject_unknown | bool
+  notify: Reload nginx
+
 - name: Manage stub_status endpoint
   ansible.builtin.template:
     src: status.conf.j2

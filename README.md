@@ -41,6 +41,9 @@ at the result.
 | `nginx_ssl_protocols` | `TLSv1.2 TLSv1.3` | TLS protocols for all TLS vhosts |
 | `nginx_ssl_ciphers` | `""` | Cipher string; empty = distro/openssl defaults |
 | `nginx_http_redirect` | `true` | Catch-all port-80 server 301s everything to HTTPS |
+| `nginx_https_reject_unknown` | `true` | Catch-all :443 server that refuses the handshake for unknown SNI / bare-IP requests (nginx 1.19.4+) |
+| `nginx_ssl_session_cache` | `shared:SSL:10m` | TLS session cache on every TLS vhost; empty = leave unset |
+| `nginx_ssl_session_timeout` | `1d` | TLS session lifetime (with the cache above) |
 | `nginx_acme_challenge` | `true` | Serve `/.well-known/acme-challenge/` from a webroot on :80 (for `certbot --webroot`) instead of redirecting it; only applies when `nginx_http_redirect` is true |
 | `nginx_acme_webroot` | `/var/www/html` | Webroot the ACME challenge is served from |
 | `nginx_remove_default_site` | `true` | Remove the distro default site |
@@ -52,6 +55,8 @@ at the result.
 | `nginx_status_port` | `8083` | Port for the status endpoint |
 | `nginx_status_allow` | `[127.0.0.1]` | Sources allowed to read the status page |
 | `nginx_proxy_set_headers` | X-Real-IP, X-Forwarded-* | Headers set on every proxied request |
+| `nginx_proxy_redirect_https` | `true` | On TLS vhosts, rewrite a backend's absolute `http://` redirects to `https://` (ProxyPassReverse parity) |
+| `nginx_proxy_client_max_body_size` | `""` | `client_max_body_size` for `mode: proxy` vhosts without their own; empty = inherit the http-level value |
 | `nginx_default_security_headers` | `[]` | Response headers added (with `always`) to every vhost — e.g. `["Strict-Transport-Security max-age=15768000"]`. Empty by default; see **Security headers** below before enabling alongside a separate hardening role |
 
 ### `nginx_vhosts` entry schema
@@ -76,9 +81,15 @@ nginx_vhosts:
     upstream: http://127.0.0.1:8080   # proxy_pass target (verbatim; trailing
                                       # slash rewrites the path, none preserves
                                       # the raw/encoded URI)
-    websocket: true              # optional — pass websocket upgrades through
     preserve_host: true          # optional — send the client Host upstream
     proxy_read_timeout: 600      # optional — seconds; also sets send timeout
+    buffering: false             # optional — proxy_buffering off (streaming /
+                                 # event-stream apps, e.g. Home Assistant)
+    proxy_redirect_https: false  # optional — opt out of the http:// -> https://
+                                 # Location rewrite (on by default for TLS vhosts)
+    client_max_body_size: 50m    # optional, any mode — overrides
+                                 # nginx_proxy_client_max_body_size
+    websocket: true              # deprecated no-op — upgrades always pass through
 
     # mode: static
     root: /var/www/app           # docroot
@@ -103,7 +114,7 @@ nginx_vhosts:
     locations:
       - path: /webhook           # nginx location match (modifiers allowed)
         upstream: http://127.0.0.1:1880/webhook   # proxied location…
-        websocket: false         #   (same options as a proxy vhost)
+        buffering: false         #   (same options as a proxy vhost)
       - path: "= /wiki/index.php"
         return: "302 https://wiki.example.com/"   # …or a return…
       - path: /assets/
@@ -111,7 +122,7 @@ nginx_vhosts:
 
     # last-resort escape hatch — raw lines inside the server block
     extra_config: |
-      client_max_body_size 512m;
+      add_header X-Robots-Tag noindex;
 ```
 
 Notes:
@@ -122,8 +133,24 @@ Notes:
   which is correct and keeps the data simple.
 - HTTPS upstreams automatically get `proxy_ssl_server_name on` (SNI).
   Upstream certs are not verified, matching nginx's default.
-- Websocket support uses a shared `map $http_upgrade $connection_upgrade`
-  installed by the role.
+- Every proxied location speaks HTTP/1.1 upstream and passes websocket
+  upgrades through, via a shared `map $http_upgrade $connection_upgrade`
+  installed by the role (a plain request gets `Connection: close`, exactly as
+  before). No per-vhost flag is needed.
+- On TLS vhosts, redirects from the backend are rewritten the way Apache's
+  `ProxyPassReverse` would: `proxy_redirect default` (Locations naming the
+  upstream address) plus `proxy_redirect http:// https://` (a backend that
+  sees the real Host but not the TLS in front of it). Without the second
+  rule the browser is bounced to :80, and a redirected POST arrives as a
+  bodiless GET.
+- `X-Forwarded-Host` is sent alongside the other X-Forwarded-* headers.
+- `nginx_proxy_client_max_body_size` sets a body limit for proxy vhosts only,
+  so a hardening layer can keep a tiny global limit for static sites
+  without returning 413 on ordinary API writes. A vhost's own
+  `client_max_body_size` wins; so does one already set in `extra_config`.
+- A catch-all `:443` server (`nginx_https_reject_unknown`) refuses the TLS
+  handshake for any name no vhost claims, including requests to the bare IP,
+  instead of answering with the first-loaded vhost's certificate and backend.
 
 ## robots.txt
 

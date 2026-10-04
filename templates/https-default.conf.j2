@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+# Catch-all for :443. A TLS request whose SNI names no managed vhost (a scan
+# of the bare IP, a stale DNS record, a typo) would otherwise land on whichever
+# vhost nginx happened to load first -- served that vhost's certificate and
+# proxied to its backend. Refuse the handshake instead: no certificate is
+# offered, so nothing about the host leaks and no backend is reached.
+{% set http2_directive = nginx_http2 and nginx_installed_version is version('1.25.1', '>=') %}
+{% set http2_listen = ' http2' if (nginx_http2 and not http2_directive) else '' %}
+server {
+    listen 443 ssl{{ http2_listen }} default_server;
+    listen [::]:443 ssl{{ http2_listen }} default_server;
+{% if http2_directive %}
+    http2 on;
+{% endif %}
+    server_name _;
+    ssl_reject_handshake on;
+    return 444;
+}

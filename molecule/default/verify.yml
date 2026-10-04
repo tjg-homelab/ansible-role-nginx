@@ -23,6 +23,7 @@
       loop:
         - /etc/nginx/conf.d/00-websocket-map.conf
         - /etc/nginx/conf.d/01-http-redirect.conf
+        - /etc/nginx/conf.d/01-https-default.conf
         - /etc/nginx/conf.d/02-status.conf
         - /etc/nginx/conf.d/app.example.test.conf
         - /etc/nginx/conf.d/site.example.test.conf
@@ -40,8 +41,9 @@
           - nginx_verify_stats.results[3].stat.exists
           - nginx_verify_stats.results[4].stat.exists
           - nginx_verify_stats.results[5].stat.exists
-          - not nginx_verify_stats.results[6].stat.exists
+          - nginx_verify_stats.results[6].stat.exists
           - not nginx_verify_stats.results[7].stat.exists
+          - not nginx_verify_stats.results[8].stat.exists
 
     - name: Read rendered proxy vhost
       ansible.builtin.slurp:
@@ -59,8 +61,61 @@
           - "'proxy_ssl_server_name on;' in conf"
           - "'return 302 https://wiki.example.test/;' in conf"
           - "'proxy_set_header X-Forwarded-Proto $scheme;' in conf"
+          - "'proxy_set_header X-Forwarded-Host $host;' in conf"
+          - "'proxy_http_version 1.1;' in conf"
+          - "'proxy_redirect default;' in conf"
+          - "'proxy_redirect http:// https://;' in conf"
+          - "'proxy_buffering off;' not in conf"
+          - "'client_max_body_size 1m;' in conf"
+          - "'ssl_session_cache   shared:SSL:10m;' in conf"
       vars:
         conf: "{{ nginx_verify_app_conf.content | b64decode }}"
+
+    - name: Read rendered static and streaming vhosts
+      ansible.builtin.slurp:
+        src: "/etc/nginx/conf.d/{{ item }}.conf"
+      loop:
+        - site.example.test
+        - stream.example.test
+      register: nginx_verify_more_confs
+
+    - name: Assert body-size defaults stay off non-proxy vhosts; per-vhost keys win
+      ansible.builtin.assert:
+        that:
+          - "'client_max_body_size' not in site_conf"
+          - "'client_max_body_size 50m;' in stream_conf"
+          - "'client_max_body_size 1m;' not in stream_conf"
+          - "'proxy_buffering off;' in stream_conf"
+      vars:
+        site_conf: "{{ nginx_verify_more_confs.results[0].content | b64decode }}"
+        stream_conf: "{{ nginx_verify_more_confs.results[1].content | b64decode }}"
+
+    - name: Request through a proxy whose backend redirects to an absolute http:// URL
+      ansible.builtin.uri:
+        url: https://stream.example.test/
+        validate_certs: false
+        follow_redirects: none
+        status_code: 302
+      register: nginx_verify_proxy_redirect
+
+    - name: Assert the backend's http:// Location was rewritten to https://
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_proxy_redirect.location == 'https://stream.example.test/landing'
+        fail_msg: "Location seen: {{ nginx_verify_proxy_redirect.location | default('none') }}"
+
+    - name: Request HTTPS with no SNI (bare IP) -- the catch-all must refuse the handshake
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        validate_certs: false
+      register: nginx_verify_reject
+      failed_when: false
+
+    - name: Assert no vhost answered the unknown-SNI request
+      ansible.builtin.assert:
+        that:
+          - nginx_verify_reject.status | default(-1) == -1
+        fail_msg: "Expected a refused handshake, got: {{ nginx_verify_reject }}"
 
     - name: Request static site over HTTP (expect catch-all redirect)
       ansible.builtin.uri:
@@ -93,7 +148,7 @@
 
     - name: Request static site over HTTPS
       ansible.builtin.uri:
-        url: https://127.0.0.1/
+        url: https://site.example.test/
         headers:
           Host: site.example.test
         validate_certs: false
@@ -121,7 +176,7 @@
     # doesn't accidentally swallow /.well-known/ too.
     - name: Request a dotfile from the static docroot (must be denied)
       ansible.builtin.uri:
-        url: https://127.0.0.1/.secret-dotfile
+        url: https://site.example.test/.secret-dotfile
         headers:
           Host: site.example.test
         validate_certs: false
@@ -136,7 +191,7 @@
 
     - name: Request /.well-known/ on the same TLS vhost (must NOT be swallowed by the dotfile deny)
       ansible.builtin.uri:
-        url: https://127.0.0.1/.well-known/somewhere/token
+        url: https://site.example.test/.well-known/somewhere/token
         headers:
           Host: site.example.test
         validate_certs: false
@@ -152,7 +207,7 @@
 
     - name: Request redirect vhost and its alias over HTTPS
       ansible.builtin.uri:
-        url: https://127.0.0.1/some/path
+        url: "https://{{ item }}/some/path"
         headers:
           Host: "{{ item }}"
         validate_certs: false
@@ -173,7 +228,7 @@
 
     - name: Request proxy vhost (expect 502 — no backend in test)
       ansible.builtin.uri:
-        url: https://127.0.0.1/
+        url: https://app.example.test/
         headers:
           Host: app.example.test
         validate_certs: false
@@ -198,7 +253,7 @@
 
     - name: Request php app root over HTTPS (index.php must EXECUTE, not serve source)
       ansible.builtin.uri:
-        url: https://127.0.0.1/
+        url: https://forum.example.test/
         headers:
           Host: forum.example.test
         validate_certs: false
@@ -227,7 +282,7 @@
     # controller's try_files fallback rather than leaking .env through it.
     - name: Request a dotfile from the php docroot (must be denied, not routed to app.php)
       ansible.builtin.uri:
-        url: https://127.0.0.1/.env
+        url: https://forum.example.test/.env
         headers:
           Host: forum.example.test
         validate_certs: false
@@ -243,7 +298,7 @@
 
     - name: Request an unmatched route (must fall through try_files to app.php)
       ansible.builtin.uri:
-        url: https://127.0.0.1/topic/42-hello
+        url: https://forum.example.test/topic/42-hello
         headers:
           Host: forum.example.test
         validate_certs: false
@@ -257,7 +312,7 @@
 
     - name: Request a php_deny path (must be forbidden)
       ansible.builtin.uri:
-        url: https://127.0.0.1/config/secret.txt
+        url: https://forum.example.test/config/secret.txt
         headers:
           Host: forum.example.test
         validate_certs: false
@@ -330,7 +385,7 @@
 
     - name: Request /robots.txt from the PHP front-controller vhost
       ansible.builtin.uri:
-        url: https://127.0.0.1/robots.txt
+        url: https://forum.example.test/robots.txt
         headers:
           Host: forum.example.test
         validate_certs: false
@@ -353,7 +408,7 @@
 
     - name: Request /robots.txt from the opted-out vhost (expect 404)
       ansible.builtin.uri:
-        url: https://127.0.0.1/robots.txt
+        url: https://site.example.test/robots.txt
         headers:
           Host: site.example.test
         validate_certs: false
